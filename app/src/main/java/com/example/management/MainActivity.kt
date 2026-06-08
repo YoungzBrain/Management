@@ -6,6 +6,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -89,8 +91,11 @@ fun MainScreen(viewModel: TaskViewModel) {
 
 @Composable
 fun TaskListScreen(viewModel: TaskViewModel, onEdit: (Task) -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val dataStore = remember { PreferencesManager(context) }
     val tasks by viewModel.tasks.collectAsState()
-    var sortBy by remember { mutableStateOf("Status") }
+    val sortBy by dataStore.sortBy.collectAsState(initial = "Status")
+    val scope = rememberCoroutineScope()
 
     val sortedTasks = remember(tasks, sortBy) {
         when (sortBy) {
@@ -101,8 +106,16 @@ fun TaskListScreen(viewModel: TaskViewModel, onEdit: (Task) -> Unit) {
 
     Column {
         Row(modifier = Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = sortBy == "Status", onClick = { sortBy = "Status" }, label = { Text("Sort by Status") })
-            FilterChip(selected = sortBy == "Date", onClick = { sortBy = "Date" }, label = { Text("Sort by Date") })
+            FilterChip(
+                selected = sortBy == "Status", 
+                onClick = { scope.launch { dataStore.saveSortOrder("Status") } }, 
+                label = { Text("Sort by Status") }
+            )
+            FilterChip(
+                selected = sortBy == "Date", 
+                onClick = { scope.launch { dataStore.saveSortOrder("Date") } }, 
+                label = { Text("Sort by Date") }
+            )
         }
 
         LazyColumn(
