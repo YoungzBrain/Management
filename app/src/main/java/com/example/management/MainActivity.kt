@@ -3,7 +3,10 @@ package com.example.management
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.rememberCoroutineScope
@@ -14,10 +17,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import com.example.management.ui.theme.ManagementTheme
 import com.google.firebase.auth.FirebaseAuth
@@ -27,6 +33,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
             ManagementTheme {
                 var isLoggedIn by remember { mutableStateOf(FirebaseAuth.getInstance().currentUser != null) }
@@ -48,6 +55,7 @@ fun MainScreen(viewModel: TaskViewModel) {
     var taskToEdit by remember { mutableStateOf<Task?>(null) }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize(),
         floatingActionButton = {
             FloatingActionButton(onClick = { showDialog = true }) {
                 Text("+")
@@ -89,6 +97,7 @@ fun MainScreen(viewModel: TaskViewModel) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun TaskListScreen(viewModel: TaskViewModel, onEdit: (Task) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -96,6 +105,7 @@ fun TaskListScreen(viewModel: TaskViewModel, onEdit: (Task) -> Unit) {
     val tasks by viewModel.tasks.collectAsState()
     val sortBy by dataStore.sortBy.collectAsState(initial = "Status")
     val scope = rememberCoroutineScope()
+    var isRefreshing by remember { mutableStateOf(false) }
 
     val sortedTasks = remember(tasks, sortBy) {
         when (sortBy) {
@@ -105,6 +115,11 @@ fun TaskListScreen(viewModel: TaskViewModel, onEdit: (Task) -> Unit) {
     }
 
     Column {
+        Text(
+            text = "Team Manager",
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier.padding(16.dp)
+        )
         Row(modifier = Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 selected = sortBy == "Status", 
@@ -118,17 +133,29 @@ fun TaskListScreen(viewModel: TaskViewModel, onEdit: (Task) -> Unit) {
             )
         }
 
-        LazyColumn(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                isRefreshing = true
+                isRefreshing = false
+            }
         ) {
-            items(sortedTasks) { task ->
-                TaskItem(
-                    task,
-                    onStatusChange = { viewModel.updateTaskStatus(task.id, task.status) },
-                    onDelete = { viewModel.deleteTask(task.id) },
-                    onEdit = { onEdit(task) }
-                )
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(sortedTasks, key = { it.id }) { task ->
+                    Box(modifier = Modifier.animateItem()) {
+                        TaskItem(
+                            task,
+                            onStatusChange = { viewModel.updateTaskStatus(task.id, task.status) },
+                            onDelete = { viewModel.deleteTask(task.id) },
+                            onEdit = { onEdit(task) }
+                        )
+                    }
+                }
             }
         }
     }
@@ -136,12 +163,16 @@ fun TaskListScreen(viewModel: TaskViewModel, onEdit: (Task) -> Unit) {
 
 @Composable
 fun TaskItem(task: Task, onStatusChange: () -> Unit, onDelete: () -> Unit, onEdit: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .shadow(4.dp, RoundedCornerShape(12.dp))
-            .clickable { onEdit() },
+            .clickable {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onEdit()
+            },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         shape = RoundedCornerShape(12.dp)
     ) {
@@ -156,7 +187,10 @@ fun TaskItem(task: Task, onStatusChange: () -> Unit, onDelete: () -> Unit, onEdi
                     style = MaterialTheme.typography.titleLarge, 
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                IconButton(onClick = onDelete) {
+                IconButton(onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onDelete()
+                }) {
                     Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
                 }
             }
@@ -173,12 +207,15 @@ fun TaskItem(task: Task, onStatusChange: () -> Unit, onDelete: () -> Unit, onEdi
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = task.status + (task.dueDate?.let { " | Due: ${java.text.SimpleDateFormat("MMM dd").format(java.util.Date(it))}" } ?: ""),
+                    text = task.status + (task.dueDate?.let { " | Due: ${java.text.SimpleDateFormat("MMM dd").format(java.util.Date(it))}" } ?: ""), 
                     style = MaterialTheme.typography.bodyMedium, 
                     color = MaterialTheme.colorScheme.primary
                 )
                 Button(
-                    onClick = onStatusChange,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onStatusChange()
+                    },
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text("Cycle", style = MaterialTheme.typography.labelLarge)
